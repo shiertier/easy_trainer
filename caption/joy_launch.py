@@ -15,8 +15,7 @@ from transformers import (
 )
 from torch.utils.data import DataLoader, Dataset
 
-from .._class.dataset import Prompt
-
+from .._class.dataset import Prompt, ImageDataset
 from ..utils import *
 from ..config import *
 
@@ -76,7 +75,7 @@ assert isinstance(llava_model, LlavaForConditionalGeneration)
 
 
 
-dataset = ImageDataset(prompts, image_paths, tokenizer, llava_model.config.image_token_index, llava_model.config.image_seq_length)
+dataset = ImageDataset(JOY2_QUESTION_PROMPT_STR, image_paths, tokenizer, llava_model.config.image_token_index, llava_model.config.image_seq_length)
 
 dataloader = DataLoader(dataset, collate_fn=dataset.collate_fn, num_workers=args.num_workers, shuffle=False, drop_last=False, batch_size=args.batch_size)
 
