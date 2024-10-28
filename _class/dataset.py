@@ -1,6 +1,5 @@
 import dataclasses
 from torch.utils.data import Dataset
-import random
 from pathlib import Path
 import torch
 import torch.amp
@@ -21,13 +20,13 @@ class Prompt:
 class ImageDataset(Dataset):
     def __init__(
         self,
-        prompts: list[Prompt],  # 提示列表
-        paths: list[Path],      # 图像路径列表
-        tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,  # 分词器
-        image_token_id: int,    # 图像标记的ID
-        image_seq_length: int,   # 图像序列长度
+        prompt: str,
+        paths: list[Path],
+        tokenizer: PreTrainedTokenizer | PreTrainedTokenizerFast,
+        image_token_id: int,
+        image_seq_length: int,
     ):
-        self.prompts = prompts
+        self.prompt = prompt
         self.paths = paths
         self.tokenizer = tokenizer
         self.image_token_id = image_token_id
@@ -40,16 +39,10 @@ class ImageDataset(Dataset):
     def __getitem__(self, idx: int) -> dict:
         path = self.paths[idx]  # 获取图像路径
 
-        # 随机选择一个提示
-        prompt_str = random.choices(
-            self.prompts, weights=[p.weight for p in self.prompts]
-        )[0].prompt
-
-        # 预处理图像
         try:
-            image = Image.open(path)  # 打开图像
+            image = Image.open(path)
             if image.size != (384, 384):
-                image = image.resize((384, 384), Image.LANCZOS)  # 调整图像大小
+                image = image.resize((384, 384), Image.LANCZOS)
             image = image.convert("RGB")  # 转换为RGB格式
             pixel_values = TVF.pil_to_tensor(image)  # 将图像转换为张量
         except Exception as e:
@@ -67,7 +60,7 @@ class ImageDataset(Dataset):
             },
             {
                 "role": "user",
-                "content": prompt_str,
+                "content": self.prompt,
             },
         ]
 

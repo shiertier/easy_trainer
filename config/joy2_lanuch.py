@@ -10,4 +10,5 @@ JOY2_GPU_COUNT_STR = "0,1,2,3,4,5,6,7"
 # 将单个模型部署多份还是部署一份
 # JOY2_MODEL_IN_PER_GPU_BOOL = False
 
+JOY2_MAX_BATCH_SIZE = 1
 
