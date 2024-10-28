@@ -6,3 +6,4 @@ from .joy2_use import *
 from .path import *
 from .base import *
 from .language import *
+from .resize import *
