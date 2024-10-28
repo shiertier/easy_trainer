@@ -1,8 +1,5 @@
-
-
 from pathlib import Path
 import torch
-import torch.amp
 from tqdm.auto import tqdm
 from transformers import (
     AutoTokenizer,
@@ -25,7 +22,6 @@ class Joy2:
                  devices_key = "all",
                  is_nf4 = True,
                  local = True,
-
                  ):
         self.model_name = model_name
         self.devices = convert_to_device_map(devices_key)
@@ -44,12 +40,15 @@ class Joy2:
         self.end_of_header_id = self.tokenizer.convert_tokens_to_ids("<|end_header_id|>")
         self.end_of_turn_id = self.tokenizer.convert_tokens_to_ids("<|eot_id|>")
         assert isinstance(self.end_of_header_id, int) and isinstance(self.end_of_turn_id, int)
+        logger_i18n.info("joycaption2: load tokenizer done")
 
     def load_model(self):
         if self.is_load_model:
+            logger_i18n.debug("joycaption2: model is already loaded")
             return
         self.load_tokenizer()
         if self._is_nf4: 
+            logger_i18n.info("joycaption2: load model with nf4")
             from transformers import BitsAndBytesConfig
             nf4_config = BitsAndBytesConfig(load_in_4bit=True, 
                                             bnb_4bit_quant_type="nf4", 
@@ -68,6 +67,8 @@ class Joy2:
             self.llava_model.to(self.devices)
         else:
             from accelerate import Accelerator
+            logger_i18n.info("joycaption2: load model with accelerate | gpus: $$devices$$",
+                             {"$$devices$$": self.devices})
             set_env("CUDA_VISIBLE_DEVICES", self.devices)
             accelerator = Accelerator()
             self.llava_model.to(accelerator.device)
@@ -81,6 +82,7 @@ class Joy2:
         self.image_seq_length = self.llava_model.config.image_seq_length
 
         self.is_load_model = True
+        logger_i18n.info("joycaption2: load model done")
 
     def generate_base(self, dataloader, max_tokens, temperature, top_k, top_p, is_greedy):
         pixel_values = dataloader['pixel_values'].to(self.vision_device, non_blocking=True)
@@ -136,6 +138,7 @@ class Joy2:
 
         image_paths = find_images_in_directory(Path(image_dir), 
                                                recursive = recursive)
+        logger_i18n.info("Found $$count$$ images.",{"count": len(image_paths)})
         logging_with_none_image(image_paths, 
                                 raise_error = False)
         if not overwrite:
@@ -193,6 +196,7 @@ class Joy2:
         
         captions = self.generate_base(dataloader, max_tokens, temperature, top_k, top_p, is_greedy)
         caption_str = prepend_string + captions[0] + append_string
+        logger_i18n.debug("Caption: $$caption$$", {"$$caption$$": caption_str})
         return caption_str
     
     def create_service(self, server_name, server_port):
