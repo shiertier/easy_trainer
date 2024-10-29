@@ -13,7 +13,7 @@ from ..utils import i18n
 from ..utils import logger, logger_i18n
 
 
-__var__ =  ["IMAGE_EXTENSIONS_SET",
+__var__ =  ["IMAGE_EXTENSIONS_LIST",
             "ImageTyping",
             "MultiImagesTyping"
             ]
@@ -30,8 +30,8 @@ __fucn__ = ["find_images_in_directory",
 
 __all__ = __var__ + __fucn__
 
-IMAGE_EXTENSIONS_SET = get_var("IMAGE_EXTENSIONS_SET", IMAGE_EXTENSIONS_SET)
-set_env("IMAGE_EXTENSIONS_SET", IMAGE_EXTENSIONS_SET)
+IMAGE_EXTENSIONS_LIST = get_var("IMAGE_EXTENSIONS_LIST", IMAGE_EXTENSIONS_LIST)
+set_env("IMAGE_EXTENSIONS_LIST", IMAGE_EXTENSIONS_LIST)
 
 ImageTyping = Union[str, PathLike, bytes, bytearray, BinaryIO, Image.Image]
 MultiImagesTyping = Union[ImageTyping, List[ImageTyping], Tuple[ImageTyping, ...]]
@@ -40,7 +40,7 @@ def find_images_in_directory(directory: Path,
                              recursive: bool = True):
     images = []
     for item in directory.iterdir():
-        if item.is_file() and item.suffix.lower() in IMAGE_EXTENSIONS_SET:
+        if item.is_file() and item.suffix.lower() in IMAGE_EXTENSIONS_LIST:
             images.append(item)
         elif item.is_dir() and recursive:
             images.extend(find_images_in_directory(item, recursive))
