@@ -20,12 +20,10 @@ class Joy2:
     def __init__(self, 
                  model_name, 
                  devices_key = "all",
-                 is_nf4 = True,
                  local = True,
                  ):
         self.model_name = model_name
-        self.devices = convert_to_device_map(devices_key)
-        self._is_nf4 = is_nf4
+        self.devices = convert_to_device_map(devices_key)        
         self.is_load_model = False
         if local:
             self.load_model()
@@ -47,21 +45,27 @@ class Joy2:
             logger_i18n.debug("joycaption2: model is already loaded")
             return
         self.load_tokenizer()
-        if self._is_nf4: 
-            logger_i18n.info("joycaption2: load model with nf4")
-            from transformers import BitsAndBytesConfig
-            nf4_config = BitsAndBytesConfig(load_in_4bit=True, 
-                                            bnb_4bit_quant_type="nf4", 
-                                            bnb_4bit_quant_storage=torch.bfloat16,
-                                            bnb_4bit_use_double_quant=True, 
-                                            bnb_4bit_compute_dtype=torch.bfloat16)
 
-            self.llava_model = LlavaForConditionalGeneration.from_pretrained(JOY2_MODEL_STR, 
-                                                                             quantization_config=nf4_config, 
-                                                                             torch_dtype="bfloat16")
-        else: 
-            self.llava_model = LlavaForConditionalGeneration.from_pretrained(JOY2_MODEL_STR, 
-                                                                        torch_dtype="bfloat16",)
+        # BUG | Repair in future
+        # if 'nf4' in self.model_name: 
+        #     logger_i18n.info("joycaption2: load model with nf4")
+        #     from transformers import BitsAndBytesConfig
+        #     nf4_config = BitsAndBytesConfig(load_in_4bit=True, 
+        #                                     bnb_4bit_quant_type="nf4", 
+        #                                     bnb_4bit_quant_storage=torch.bfloat16,
+        #                                     bnb_4bit_use_double_quant=True, 
+        #                                     bnb_4bit_compute_dtype=torch.bfloat16)
+
+        #     self.llava_model = LlavaForConditionalGeneration.from_pretrained(JOY2_MODEL_STR, 
+        #                                                                      quantization_config=nf4_config, 
+        #                                                                      torch_dtype="bfloat16")
+        # else: 
+        #     self.llava_model = LlavaForConditionalGeneration.from_pretrained(JOY2_MODEL_STR, 
+        #                                                                 torch_dtype="bfloat16",)
+
+        self.llava_model = LlavaForConditionalGeneration.from_pretrained(JOY2_MODEL_STR, 
+                                                                         torch_dtype="bfloat16",)
+
 
         if is_single_gpu(self.devices):
             self.llava_model.to(self.devices)
@@ -84,15 +88,28 @@ class Joy2:
         self.is_load_model = True
         logger_i18n.info("joycaption2: load model done")
 
-    def generate_base(self, dataloader, max_tokens, temperature, top_k, top_p, is_greedy):
-        pixel_values = dataloader['pixel_values'].to(self.vision_device, non_blocking=True)
-        input_ids = dataloader['input_ids'].to(self.language_device, non_blocking=True)
-        attention_mask = dataloader['attention_mask'].to(self.language_device, non_blocking=True)
+    def generate_base(self, data, max_tokens, temperature, top_k, top_p, is_greedy):
+        pixel_values = data['pixel_values'].to(self.vision_device, non_blocking=True)
+        input_ids = data['input_ids'].to(self.language_device, non_blocking=True)
+        attention_mask = data['attention_mask'].to(self.language_device, non_blocking=True)
 
         # Normalize the image
         pixel_values = pixel_values / 255.0
         pixel_values = TVF.normalize(pixel_values, [0.5], [0.5])
         pixel_values = pixel_values.to(self.vision_dtype)
+
+        # debug
+        # 在self.llava_model.generate上一行打印input_ids, pixel_values, attention_mask三个张量的shape看看
+        #logger_i18n.debug("joycaption2: input_ids shape: $$input_ids_shape$$, pixel_values shape: $$pixel_values_shape$$, attention_mask shape: $$attention_mask_shape$$",
+        #             {"$$input_ids_shape$$": input_ids.shape, "$$pixel_values_shape$$": pixel_values.shape, "$$attention_mask_shape$$": attention_mask.shape})
+        print("input_ids shape:")
+        print(input_ids.shape)
+        print("pixel_values shape:")
+        print(pixel_values.shape)
+        print("attention_mask shape:")
+        print(attention_mask.shape)
+
+        # Generate the captions
 
         # Generate the captions
         generate_ids = self.llava_model.generate(
@@ -193,8 +210,11 @@ class Joy2:
                                 shuffle=False, 
                                 drop_last=False, 
                                 batch_size=batch_size)
+        for batch in dataloader:
+            first_batch = batch
+            break
         
-        captions = self.generate_base(dataloader, max_tokens, temperature, top_k, top_p, is_greedy)
+        captions = self.generate_base(first_batch, max_tokens, temperature, top_k, top_p, is_greedy)
         caption_str = prepend_string + captions[0] + append_string
         logger_i18n.debug("Caption: $$caption$$", {"$$caption$$": caption_str})
         return caption_str
@@ -205,7 +225,6 @@ class Joy2:
 
 model_name = JOY2_MODEL_STR
 devices_key = JOY2_GPU_COUNT_STR
-is_nf4 = JOY2_IS_NF4_BOOL
 local = True
 image_dir = DATASET_PIC_ORIGIN_DIR
 is_image_load_recursive = IMAGE_LOAD_RECURSIVE_BOOL

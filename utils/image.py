@@ -55,14 +55,17 @@ def logging_with_none_image(image_paths: List[Path],
             logger_i18n.warning("No images found")
 
 def filter_images_with_txt(image_paths: List[Path]):
-    image_paths_with_caption = [path for path in image_paths if not Path(path).with_suffix(".txt").exists()]
+    image_paths_with_caption = [path for path in image_paths if Path(path).with_suffix(".txt").exists()]
     logger_i18n.info(
             "existing $$count$$ captions",
             {
                 "$$count$$": len(image_paths_with_caption)
             }
     )
-    return image_paths - image_paths_with_caption
+    image_paths_set = set(image_paths)
+    image_paths_with_caption_set = set(image_paths_with_caption)
+    difference = image_paths_set - image_paths_with_caption_set
+    return list(difference)
 
 def _is_readable(obj):
     return hasattr(obj, 'read') and hasattr(obj, 'seek')

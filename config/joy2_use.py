@@ -1,4 +1,4 @@
-JOY2_QUESTION_PROMPT_STR = "" # 提问
+JOY2_QUESTION_PROMPT_STR = "describe the following image in detail:" # 提问
 
 # LLM 设置
 JOY2_TEMPERATURE_FLOAT = 0.5 # 控制生成文本的随机性

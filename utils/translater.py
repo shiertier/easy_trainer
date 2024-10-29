@@ -19,7 +19,7 @@ class Translater:
         else:
             result = self.translation.gettext(input)
             for key, value in replace_dict.items():
-                result = result.replace(key, value)
+                result = result.replace(key, str(value))
             return result
 
 current_dir = os.path.dirname(__file__)
