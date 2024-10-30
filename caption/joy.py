@@ -13,12 +13,14 @@ import torchvision.transforms.functional as TVF
 from .._class.dataset import ImageDataset
 from ..utils import *
 from ..config import *
+from .base import CaptionBase
+import os.path
 
 SCRIPT_DIR = Path(__file__).parent
 
-class Joy2:
-    def __init__(self, 
-                 model_name, 
+class Joy2(CaptionBase):
+    def __init__(self,
+                 model_name='llama-joycaption-alpha-two-hf-llava',
                  devices_key = "all",
                  local = True,
                  download = True,
@@ -30,20 +32,24 @@ class Joy2:
                             'llama-joycaption-alpha-two-hf-llava': 
                             {
                                 'type': 'repo',
-                                'urls': 
-                                {
-                                    'huggingface': '',
-                                    'modelscope': '',
-                                    'baiduyun': None,
-                                    'aliyun': None
-                                }
+                                'url': 'https://huggingface.co/fancyfeast/llama-joycaption-alpha-two-hf-llava'
                             }
                         }
-        self.is_download_model = download
-        if self.is_download_model:
+        if download:
             self.download_model()
         if local:
             self.load_model()
+
+    def download_model(self):
+        download_data = self.model_urls[self.model_name]
+        download_type = download_data['type']
+        download_url = download_data['url']
+        name = download_url.split('/')[-1]
+        save_dir = os.path.join(CAPTION_MODEL_DIR, name)
+        if not os.path.exists(save_dir):
+            download_huggingface_model(download_url, repo_type=download_type, local_dir=CAPTION_MODEL_DIR)
+        else:
+            logger_i18n.info("model already exists, if model load failed, please delete the model folder and try again")
 
     def load_tokenizer(self):
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_name, use_fast=True)
@@ -63,36 +69,10 @@ class Joy2:
             return
         self.load_tokenizer()
 
-        # BUG | Repair in future
-        # if 'nf4' in self.model_name: 
-        #     logger_i18n.info("joycaption2: load model with nf4")
-        #     from transformers import BitsAndBytesConfig
-        #     nf4_config = BitsAndBytesConfig(load_in_4bit=True, 
-        #                                     bnb_4bit_quant_type="nf4", 
-        #                                     bnb_4bit_quant_storage=torch.bfloat16,
-        #                                     bnb_4bit_use_double_quant=True, 
-        #                                     bnb_4bit_compute_dtype=torch.bfloat16)
-
-        #     self.llava_model = LlavaForConditionalGeneration.from_pretrained(JOY2_MODEL_STR, 
-        #                                                                      quantization_config=nf4_config, 
-        #                                                                      torch_dtype="bfloat16")
-        # else: 
-        #     self.llava_model = LlavaForConditionalGeneration.from_pretrained(JOY2_MODEL_STR, 
-        #                                                                 torch_dtype="bfloat16",)
-
         self.llava_model = LlavaForConditionalGeneration.from_pretrained(JOY2_MODEL_STR, 
                                                                          torch_dtype="bfloat16",)
 
-
-        if is_single_gpu(self.devices):
-            self.llava_model.to(self.devices)
-        else:
-            from accelerate import Accelerator
-            logger_i18n.info("joycaption2: load model with accelerate | gpus: $$devices$$",
-                             {"$$devices$$": self.devices})
-            set_env("CUDA_VISIBLE_DEVICES", self.devices)
-            accelerator = Accelerator()
-            self.llava_model.to(accelerator.device)
+        self.llava_model.to(self.devices)
 
         assert isinstance(self.llava_model, LlavaForConditionalGeneration)
 
@@ -150,7 +130,40 @@ class Joy2:
 
         return captions
 
-    def generate_captions( self, 
+    def generate_captions_by_paths(self,
+                                   image_paths,
+                                   prompt,
+                                   batch_size = 1,
+                                   prepend_string = '',
+                                   append_string = '',
+                                   max_tokens = 300,
+                                   temperature = 0.5,
+                                   top_p = 0.9,
+                                   top_k = 10,
+                                   is_greedy = False,
+                                   overwrite = False,
+                                   ):
+        dataset = ImageDataset(prompt = prompt,             
+                               paths = image_paths,             
+                               tokenizer = self.tokenizer,             
+                               image_token_id = self.image_token_id,             
+                               image_seq_length = self.image_seq_length)
+        dataloader = DataLoader(dataset, 
+                                collate_fn=dataset.collate_fn, 
+                                num_workers=16, 
+                                shuffle=False, 
+                                drop_last=False, 
+                                batch_size=batch_size)
+
+        for batch in dataloader:
+            captions = self.generate_base(batch, max_tokens, temperature, top_k, top_p, is_greedy)
+
+            for path, caption in zip(batch['paths'], captions):
+                caption_str = prepend_string + caption + append_string
+                write_caption(Path(path), caption_str)
+
+
+    def generate_captions_by_path(self, 
                                 image_dir, 
                                 prompt,
                                 batch_size = 1,
@@ -237,10 +250,6 @@ class Joy2:
         # TODO
         pass
 
-    def download_model(self):
-        download_data = self.model_urls[self.model_name]
-        download_type = download_data['type']
-        download_urls = download_data['urls']
       
 
 model_name = JOY2_MODEL_STR

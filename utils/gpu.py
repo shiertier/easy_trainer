@@ -2,7 +2,7 @@ import torch.cuda
 from ..utils import logger_i18n, i18n
 from ..config import *
 
-__all__ = ['convert_to_device_map', "is_single_gpu", "convert_to_device_list"]
+__all__ = ['convert_to_device_map', "is_single_gpu", "convert_to_device_list", "get_all_gpus"]
 
 def verify_gpu_input_right(gpu_ids: str):
     if gpu_ids.strip().lower() == "all":
@@ -23,11 +23,11 @@ def is_single_gpu(devices: str):
 
 def convert_to_device_list(gpu_ids: str):
     if gpu_ids.strip().lower() == "all":
-        # 返回所有可用 GPU
-        available_gpus = [f"cuda:{i}" for i in range(torch.cuda.device_count())]
+        return get_all_gpus()
     else:
         verify_gpu_input_right(gpu_ids)
         available_gpus = []
+        gpu_ids = gpu_ids.replace('，', ',') # 处理中文逗号
         for gpu_id in gpu_ids.split(','):
             gpu_id = gpu_id.strip()  # 清理多余的空格
             if torch.cuda.is_available() and int(gpu_id) < torch.cuda.device_count():
@@ -39,4 +39,8 @@ def convert_to_device_list(gpu_ids: str):
                         "$$gpu_id$$": gpu_id
                     }
                 )
+                raise ValueError(i18n("GPU ID is not available or is out of range."))
     return available_gpus
+
+def get_all_gpus():
+    return [f"cuda:{i}" for i in range(torch.cuda.device_count())]
