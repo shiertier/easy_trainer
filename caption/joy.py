@@ -21,10 +21,27 @@ class Joy2:
                  model_name, 
                  devices_key = "all",
                  local = True,
+                 download = True,
                  ):
         self.model_name = model_name
-        self.devices = convert_to_device_map(devices_key)        
+        self.devices = convert_to_device_map(devices_key)
         self.is_load_model = False
+        self.model_urls = {
+                            'llama-joycaption-alpha-two-hf-llava': 
+                            {
+                                'type': 'repo',
+                                'urls': 
+                                {
+                                    'huggingface': '',
+                                    'modelscope': '',
+                                    'baiduyun': None,
+                                    'aliyun': None
+                                }
+                            }
+                        }
+        self.is_download_model = download
+        if self.is_download_model:
+            self.download_model()
         if local:
             self.load_model()
 
@@ -99,15 +116,12 @@ class Joy2:
         pixel_values = pixel_values.to(self.vision_dtype)
 
         # debug
-        # 在self.llava_model.generate上一行打印input_ids, pixel_values, attention_mask三个张量的shape看看
-        #logger_i18n.debug("joycaption2: input_ids shape: $$input_ids_shape$$, pixel_values shape: $$pixel_values_shape$$, attention_mask shape: $$attention_mask_shape$$",
-        #             {"$$input_ids_shape$$": input_ids.shape, "$$pixel_values_shape$$": pixel_values.shape, "$$attention_mask_shape$$": attention_mask.shape})
-        print("input_ids shape:")
-        print(input_ids.shape)
-        print("pixel_values shape:")
-        print(pixel_values.shape)
-        print("attention_mask shape:")
-        print(attention_mask.shape)
+        logger_i18n.debug("input_ids shape:")
+        logger.debug(input_ids.shape)
+        logger_i18n.debug("pixel_values shape:")
+        logger.debug(pixel_values.shape)
+        logger_i18n.debug("attention_mask shape:")
+        logger.debug(attention_mask.shape)
 
         # Generate the captions
 
@@ -155,7 +169,7 @@ class Joy2:
 
         image_paths = find_images_in_directory(Path(image_dir), 
                                                recursive = recursive)
-        logger_i18n.info("Found $$count$$ images.",{"count": len(image_paths)})
+        logger_i18n.info("Found $$count$$ images.",{"$$count$$": len(image_paths)})
         logging_with_none_image(image_paths, 
                                 raise_error = False)
         if not overwrite:
@@ -222,6 +236,12 @@ class Joy2:
     def create_service(self, server_name, server_port):
         # TODO
         pass
+
+    def download_model(self):
+        download_data = self.model_urls[self.model_name]
+        download_type = download_data['type']
+        download_urls = download_data['urls']
+      
 
 model_name = JOY2_MODEL_STR
 devices_key = JOY2_GPU_COUNT_STR
