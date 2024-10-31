@@ -205,6 +205,7 @@ class Joy2(CaptionBase):
     def generate_captions_by_paths(self,
                                    image_paths,
                                    prompt,
+                                   gpu_key, 
                                    batch_size = 1,
                                    prepend_string = '',
                                    append_string = '',
@@ -220,59 +221,33 @@ class Joy2(CaptionBase):
         dataloader = self.images_dataloader(prompt, image_paths, batch_size)
 
         for batch in dataloader:
-            captions = self.generate_base(batch, max_tokens, temperature, top_k, top_p, is_greedy)
+            captions = self.generate_base(gpu_key,batch, max_tokens, temperature, top_k, top_p, is_greedy)
 
             for path, caption in zip(batch['paths'], captions):
                 caption_str = prepend_string + caption + append_string
                 write_caption(Path(path), caption_str)
 
-    def generate_captions_by_dir(self, 
-                                image_dir, 
-                                prompt,
-                                batch_size = 1,
-                                prepend_string = '',
-                                append_string = '',
-                                max_tokens = 300,
-                                temperature = 0.5,
-                                top_p = 0.9,
-                                top_k = 10,
-                                is_greedy = False,
-                                overwrite = False,
-                                recursive = False):
+    def generate_captions_by_dir(self,
+                                   image_paths,
+                                   prompt,
+                                   batch_size = 1,
+                                   prepend_string = '',
+                                   append_string = '',
+                                   max_tokens = 300,
+                                   temperature = 0.5,
+                                   top_p = 0.9,
+                                   top_k = 10,
+                                   is_greedy = False,
+                                   overwrite = False,
+                                   recursive = True,
+                                   ):
 
         if not self.is_load_model:
             self.load_model()
 
         image_paths = find_images_in_directory(Path(image_dir), 
                                                recursive = recursive)
-        logger_i18n.info("Found $$count$$ images.",{"$$count$$": len(image_paths)})
-        logging_with_none_image(image_paths, 
-                                raise_error = False)
-        if not overwrite:
-            image_paths = filter_images_with_txt(image_paths)
 
-        dataset = ImageDataset(prompt = prompt,             
-                               paths = image_paths,             
-                               tokenizer = self.tokenizer,             
-                               image_token_id = self.image_token_id,             
-                               image_seq_length = self.image_seq_length)
-        dataloader = DataLoader(dataset, 
-                                collate_fn=dataset.collate_fn, 
-                                num_workers=16, 
-                                shuffle=False, 
-                                drop_last=False, 
-                                batch_size=batch_size)
-
-        pbar = tqdm(total=len(image_paths), desc=i18n("Captioning images..."), dynamic_ncols=True)
-
-        for batch in dataloader:
-            captions = self.generate_base(batch, max_tokens, temperature, top_k, top_p, is_greedy)
-
-            for path, caption in zip(batch['paths'], captions):
-                caption_str = prepend_string + caption + append_string
-                write_caption(Path(path), caption_str)
-            
-            pbar.update(len(captions))
 
     def create_service(self, server_name, server_port):
         # TODO
