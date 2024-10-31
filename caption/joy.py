@@ -26,8 +26,9 @@ class Joy2(CaptionBase):
                  download = True,
                  ):
         self.model_name = model_name
-        self.devices = convert_to_device_map(devices_key)
-        self.is_load_model = False
+        self.devices = convert_to_device_list(devices_key)
+        self.is_load_tokenizer = False
+        self.gpu_load_model_sucess = []
         self.model_urls = {
                             'llama-joycaption-alpha-two-hf-llava': 
                             {
@@ -35,6 +36,7 @@ class Joy2(CaptionBase):
                                 'url': 'https://huggingface.co/fancyfeast/llama-joycaption-alpha-two-hf-llava'
                             }
                         }
+        self.models = {}
         if download:
             self.download_model()
         if local:
@@ -53,39 +55,65 @@ class Joy2(CaptionBase):
 
     def load_tokenizer(self):
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_name, use_fast=True)
-
         is_valid_tokenizer = isinstance(self.tokenizer, PreTrainedTokenizer) or isinstance(self.tokenizer, PreTrainedTokenizerFast)
         tokenizer_valid_error_info = i18n("Tokenizer is of type $$tokenizer_type$$", {"$$tokenizer_type$$": type(self.tokenizer)})
         assert is_valid_tokenizer, tokenizer_valid_error_info
-
         self.end_of_header_id = self.tokenizer.convert_tokens_to_ids("<|end_header_id|>")
         self.end_of_turn_id = self.tokenizer.convert_tokens_to_ids("<|eot_id|>")
         assert isinstance(self.end_of_header_id, int) and isinstance(self.end_of_turn_id, int)
         logger_i18n.info("joycaption2: load tokenizer done")
+        self.is_load_tokenizer = True
+    
+    def model_in_cpu(self):
+        if not self.is_load_tokenizer:
+            self.load_tokenizer()
+        try:
+            return self.llava_model_cpu
+        except Exception:    
+            self.llava_model_cpu = LlavaForConditionalGeneration.from_pretrained(JOY2_MODEL_STR, 
+                                                                                 torch_dtype="bfloat16")
+            return self.llava_model_cpu
 
-    def load_model(self):
-        if self.is_load_model:
+    def load_model_in_gpu(self,gpu_id=0):
+        if gpu_id in self.gpu_load_model_sucess:
             logger_i18n.debug("joycaption2: model is already loaded")
             return
-        self.load_tokenizer()
+        
+        model_copy = type(self.llava_model_cpu)()
+        model_copy.load_state_dict(self.llava_model_cpu.state_dict())
+        model_copy.to(torch.device(f'cuda:{gpu_id}'))
+        self.model[gpu_id] = {}
+        self.model[gpu_id] = {
+            "model": model_copy,
+            "vision_dtype": model_copy.vision_tower.vision_model.embeddings.patch_embedding.weight.dtype,
+            "vision_device": model_copy.vision_tower.vision_model.embeddings.patch_embedding.weight.device,
+            "language_device": model_copy.language_model.get_input_embeddings().weight.device,
+            "image_token_id": model_copy.config.image_token_index,
+            "image_seq_length": model_copy.config.image_seq_length
+        }
+        logger_i18n.info("joycaption2: load model done in gpu: $$gpu_id$$", {"$$gpu_id$$": gpu_id})
 
-        self.llava_model = LlavaForConditionalGeneration.from_pretrained(JOY2_MODEL_STR, 
-                                                                         torch_dtype="bfloat16",)
+    def load_model(self):
+        for gpu_id in self.devices:
+            self.load_model_in_gpu(gpu_id)
+        del self.llava_model_cpu
 
-        self.llava_model.to(self.devices)
+    def find_images_by_dir(self, ,recursive=True):
+        image_paths = find_images_in_directory(image_dir, recursive = recursive)
 
-        assert isinstance(self.llava_model, LlavaForConditionalGeneration)
 
-        self.vision_dtype = self.llava_model.vision_tower.vision_model.embeddings.patch_embedding.weight.dtype
-        self.vision_device = self.llava_model.vision_tower.vision_model.embeddings.patch_embedding.weight.device
-        self.language_device = self.llava_model.language_model.get_input_embeddings().weight.device
-        self.image_token_id = self.llava_model.config.image_token_index
-        self.image_seq_length = self.llava_model.config.image_seq_length
 
-        self.is_load_model = True
-        logger_i18n.info("joycaption2: load model done")
+
+
+
+
+
+
+
+
 
     def generate_base(self, data, max_tokens, temperature, top_k, top_p, is_greedy):
+
         pixel_values = data['pixel_values'].to(self.vision_device, non_blocking=True)
         input_ids = data['input_ids'].to(self.language_device, non_blocking=True)
         attention_mask = data['attention_mask'].to(self.language_device, non_blocking=True)
@@ -163,7 +191,7 @@ class Joy2(CaptionBase):
                 write_caption(Path(path), caption_str)
 
 
-    def generate_captions_by_path(self, 
+    def generate_captions_by_dir(self, 
                                 image_dir, 
                                 prompt,
                                 batch_size = 1,
@@ -211,7 +239,7 @@ class Joy2(CaptionBase):
             
             pbar.update(len(captions))
 
-    def generate_caption(   self, 
+    def generate_caption_by_path(   self, 
                             image, 
                             prompt,
                             batch_size = 1,
