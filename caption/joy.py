@@ -15,6 +15,7 @@ from ..utils import *
 from ..config import *
 from .base import CaptionBase
 import os.path
+import copy
 
 SCRIPT_DIR = Path(__file__).parent
 
@@ -28,7 +29,8 @@ class Joy2(CaptionBase):
         self.model_name = model_name
         self.devices = convert_to_device_list(devices_key)
         self.is_load_tokenizer = False
-        self.gpu_load_model_sucess = []
+        self.is_load_llava_model_cpu = False
+        self.models = {}
         self.model_urls = {
                             'llama-joycaption-alpha-two-hf-llava': 
                             {
@@ -36,20 +38,30 @@ class Joy2(CaptionBase):
                                 'url': 'https://huggingface.co/fancyfeast/llama-joycaption-alpha-two-hf-llava'
                             }
                         }
-        self.models = {}
+        
         if download:
             self.download_model()
+
         if local:
             self.load_model()
+    
+    def _verify_model_name(self):
+        if self.model_name not in self.model_urls:
+            raise ValueError(i18n("Model name $$self.model_name$$ not found in model_urls",{"$$self.model_name$$": self.model_name}))
 
-    def download_model(self):
+    def download_model(self, 
+                       local_dir = None):
+        self._verify_model_name(self)
         download_data = self.model_urls[self.model_name]
         download_type = download_data['type']
         download_url = download_data['url']
         name = download_url.split('/')[-1]
         save_dir = os.path.join(CAPTION_MODEL_DIR, name)
         if not os.path.exists(save_dir):
-            download_huggingface_model(download_url, repo_type=download_type, local_dir=CAPTION_MODEL_DIR)
+            if local_dir is None:
+                download_huggingface_model(download_url, repo_type=download_type, local_dir=CAPTION_MODEL_DIR)
+            else:
+                download_huggingface_model(download_url, repo_type=download_type, local_dir=local_dir)
         else:
             logger_i18n.info("model already exists, if model load failed, please delete the model folder and try again")
 
@@ -64,33 +76,35 @@ class Joy2(CaptionBase):
         logger_i18n.info("joycaption2: load tokenizer done")
         self.is_load_tokenizer = True
     
-    def model_in_cpu(self):
+    def load_model_in_cpu(self):
         if not self.is_load_tokenizer:
             self.load_tokenizer()
-        try:
-            return self.llava_model_cpu
-        except Exception:    
+        if not self.is_load_llava_model_cpu:
             self.llava_model_cpu = LlavaForConditionalGeneration.from_pretrained(JOY2_MODEL_STR, 
                                                                                  torch_dtype="bfloat16")
-            return self.llava_model_cpu
+            self.image_token_id = self.llava_model_cpu.config.image_token_index,
+            self.image_seq_length = self.llava_model_cpu.config.image_seq_length
+            self.is_load_llava_model_cpu = True
 
     def load_model_in_gpu(self,gpu_id=0):
-        if gpu_id in self.gpu_load_model_sucess:
+        if gpu_id in list(self.model.keys()):
             logger_i18n.debug("joycaption2: model is already loaded")
             return
         
-        model_copy = type(self.llava_model_cpu)()
-        model_copy.load_state_dict(self.llava_model_cpu.state_dict())
+        self.llava_model_cpu = self.load_model_in_cpu()
+
+        model_copy = copy.deepcopy(self.llava_model_cpu)
         model_copy.to(torch.device(f'cuda:{gpu_id}'))
-        self.model[gpu_id] = {}
+
+        self.model[gpu_id] = {"status": 0}
         self.model[gpu_id] = {
             "model": model_copy,
             "vision_dtype": model_copy.vision_tower.vision_model.embeddings.patch_embedding.weight.dtype,
             "vision_device": model_copy.vision_tower.vision_model.embeddings.patch_embedding.weight.device,
             "language_device": model_copy.language_model.get_input_embeddings().weight.device,
-            "image_token_id": model_copy.config.image_token_index,
-            "image_seq_length": model_copy.config.image_seq_length
+            "status": 1
         }
+        
         logger_i18n.info("joycaption2: load model done in gpu: $$gpu_id$$", {"$$gpu_id$$": gpu_id})
 
     def load_model(self):
@@ -98,30 +112,36 @@ class Joy2(CaptionBase):
             self.load_model_in_gpu(gpu_id)
         del self.llava_model_cpu
 
-    def find_images_by_dir(self, ,recursive=True):
+    def find_images_by_dir(self, image_dir, filter_captoion=True, recursive=True):
         image_paths = find_images_in_directory(image_dir, recursive = recursive)
+        if filter_captoion:
+            return filter_images_with_txt(image_paths)
+        else:
+            return image_paths
 
+    def images_dataloader(self, prompt, image_paths, batch_size, num_workers=1):
+        dataset = ImageDataset(prompt = prompt,             
+                               paths = image_paths,             
+                               tokenizer = self.tokenizer,             
+                               image_token_id = self.image_token_id,             
+                               image_seq_length = self.image_seq_length)
+        dataloader = DataLoader(dataset, 
+                                collate_fn=dataset.collate_fn, 
+                                num_workers=num_workers, 
+                                shuffle=False, 
+                                drop_last=False, 
+                                batch_size=batch_size)
+        return dataloader
 
-
-
-
-
-
-
-
-
-
-
-    def generate_base(self, data, max_tokens, temperature, top_k, top_p, is_greedy):
-
-        pixel_values = data['pixel_values'].to(self.vision_device, non_blocking=True)
-        input_ids = data['input_ids'].to(self.language_device, non_blocking=True)
-        attention_mask = data['attention_mask'].to(self.language_device, non_blocking=True)
+    def generate_base(self, gpu_key, data, max_tokens, temperature, top_k, top_p, is_greedy):
+        pixel_values = data['pixel_values'].to(self.model[gpu_key]['vision_device'], non_blocking=True)
+        input_ids = data['input_ids'].to(self.model[gpu_key]['language_device'], non_blocking=True)
+        attention_mask = data['attention_mask'].to(self.model[gpu_key]['language_device'], non_blocking=True)
 
         # Normalize the image
         pixel_values = pixel_values / 255.0
         pixel_values = TVF.normalize(pixel_values, [0.5], [0.5])
-        pixel_values = pixel_values.to(self.vision_dtype)
+        pixel_values = pixel_values.to(self.model[gpu_key]['vision_dtype'])
 
         # debug
         logger_i18n.debug("input_ids shape:")
@@ -130,8 +150,6 @@ class Joy2(CaptionBase):
         logger.debug(pixel_values.shape)
         logger_i18n.debug("attention_mask shape:")
         logger.debug(attention_mask.shape)
-
-        # Generate the captions
 
         # Generate the captions
         generate_ids = self.llava_model.generate(
@@ -156,7 +174,33 @@ class Joy2(CaptionBase):
         captions = self.tokenizer.batch_decode(generate_ids, skip_special_tokens=False, clean_up_tokenization_spaces=False)
         captions = [c.strip() for c in captions]
 
+        pixel_values.to('cpu')
+        input_ids.to('cpu')
+        attention_mask.to('cpu')
+        del pixel_values, input_ids, attention_mask
         return captions
+    
+    def generate_caption_by_path(self,
+                                image: str, 
+                                prompt: str,
+                                batch_size = 1,
+                                prepend_string = '',
+                                append_string = '',
+                                max_tokens = 300,
+                                temperature = 0.5,
+                                top_p = 0.9,
+                                top_k = 10,
+                                is_greedy = False):
+        dataloader = self.images_dataloader(prompt, [image], batch_size)
+        for batch in dataloader:
+            first_batch = batch
+            break
+        
+        first_gpu_key = list(self.model.keys())[0]
+        captions = self.generate_base(first_gpu_key, first_batch, max_tokens, temperature, top_k, top_p, is_greedy)
+        caption_str = prepend_string + captions[0] + append_string
+        logger_i18n.debug("Caption: $$caption$$", {"$$caption$$": caption_str})
+        return caption
 
     def generate_captions_by_paths(self,
                                    image_paths,
@@ -171,17 +215,9 @@ class Joy2(CaptionBase):
                                    is_greedy = False,
                                    overwrite = False,
                                    ):
-        dataset = ImageDataset(prompt = prompt,             
-                               paths = image_paths,             
-                               tokenizer = self.tokenizer,             
-                               image_token_id = self.image_token_id,             
-                               image_seq_length = self.image_seq_length)
-        dataloader = DataLoader(dataset, 
-                                collate_fn=dataset.collate_fn, 
-                                num_workers=16, 
-                                shuffle=False, 
-                                drop_last=False, 
-                                batch_size=batch_size)
+        if not overwrite:
+            image_paths = filter_images_with_txt(image_paths)
+        dataloader = self.images_dataloader(prompt, image_paths, batch_size)
 
         for batch in dataloader:
             captions = self.generate_base(batch, max_tokens, temperature, top_k, top_p, is_greedy)
@@ -189,7 +225,6 @@ class Joy2(CaptionBase):
             for path, caption in zip(batch['paths'], captions):
                 caption_str = prepend_string + caption + append_string
                 write_caption(Path(path), caption_str)
-
 
     def generate_captions_by_dir(self, 
                                 image_dir, 
@@ -239,41 +274,6 @@ class Joy2(CaptionBase):
             
             pbar.update(len(captions))
 
-    def generate_caption_by_path(   self, 
-                            image, 
-                            prompt,
-                            batch_size = 1,
-                            prepend_string = '',
-                            append_string = '',
-                            max_tokens = 300,
-                            temperature = 0.5,
-                            top_p = 0.9,
-                            top_k = 10,
-                            is_greedy = False):
-        
-        if not self.is_load_model:
-            self.load_model()
-
-        dataset = ImageDataset(prompt = prompt,             
-                               paths = [image],             
-                               tokenizer = self.tokenizer,             
-                               image_token_id = self.image_token_id,             
-                               image_seq_length = self.image_seq_length)
-        dataloader = DataLoader(dataset, 
-                                collate_fn=dataset.collate_fn, 
-                                num_workers=16, 
-                                shuffle=False, 
-                                drop_last=False, 
-                                batch_size=batch_size)
-        for batch in dataloader:
-            first_batch = batch
-            break
-        
-        captions = self.generate_base(first_batch, max_tokens, temperature, top_k, top_p, is_greedy)
-        caption_str = prepend_string + captions[0] + append_string
-        logger_i18n.debug("Caption: $$caption$$", {"$$caption$$": caption_str})
-        return caption_str
-    
     def create_service(self, server_name, server_port):
         # TODO
         pass
