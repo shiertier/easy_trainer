@@ -1,4 +1,4 @@
-from tqdm.auto import tqdm
+#from tqdm.auto import tqdm
 import os.path
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
@@ -43,7 +43,8 @@ class ResizeImage:
                 futures.append((relative_path, future))
 
             # Use tqdm to display a progress bar
-            for relative_path, future in tqdm(as_completed(futures), total=len(futures), desc="Resizing Images", unit="image"):
+            # for relative_path, future in tqdm(as_completed(futures), total=len(futures), desc="Resizing Images", unit="image"):
+            for relative_path, future inas_completed(futures):
                 try:
                     future.result()  # Wait for the result of the future
                     value = image_dict[relative_path]
