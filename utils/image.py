@@ -147,7 +147,7 @@ def resize_image(image,
         with image.resize((new_width, new_height), resample=Image.BICUBIC) as img_new:
             cropped_image = img_new.crop((crop_x, crop_y, new_width - crop_x, new_height - crop_y))
     except OSError as e:
-        logger_i18n.error("Error processing image $$image_path$$: $$e$$",{"$$image_path$$": image_path, "$$e$$":e})
+        logger_i18n.error("Error processing image: $$e$$",{"$$e$$":e})
         return None
     
     return cropped_image
