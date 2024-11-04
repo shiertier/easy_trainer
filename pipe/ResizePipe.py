@@ -51,6 +51,7 @@ class ResizeImage:
                     value['save_dir'] = self.save_dir
                     resized_images[relative_path] = value
                 except Exception as e:
-                    print(f"Error processing image {relative_path}: {e}")
+                    # print(f"Error processing image {relative_path}: {e}")
+                    pass
 
         return resized_images
