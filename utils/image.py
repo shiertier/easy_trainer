@@ -117,12 +117,11 @@ def resize_image(image,
     
     def get_size_key():
         for key in buckets.keys():
-            if int(key) > min_size:
-                if total_resolution >= int(key) * 0.95:
-                    if int(key) > max_size:
-                        return max_size
-                    else:
-                        return key
+            if int(key) > min_size and total_resolution >= int(key) * 0.95:
+                if int(key) >= max_size:
+                    return max_size
+                else:
+                    return key
         return None
     
     size_key = get_size_key()
