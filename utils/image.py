@@ -107,8 +107,10 @@ def resize_image(image,
     
     if not buckets:
         buckets = RESIZE_BUCKETS
-    
-    image = load_image(image)
+    try:
+        image = load_image(image)
+    except OSError as e:
+        logger_i18n("Error processing image $$image_path$$: $$e$$",{"$$image_path$$": image_path, "$$e$$":e})
     
     width, height = image.size
     total_resolution = width * height
