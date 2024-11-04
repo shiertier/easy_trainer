@@ -110,7 +110,7 @@ def resize_image(image,
     try:
         image = load_image(image)
     except OSError as e:
-        logger_i18n.error("Error processing image $$image_path$$: $$e$$",{"$$image_path$$": image_path, "$$e$$":e})
+        logger_i18n.error("Error processing image: $$e$$",{"$$e$$":e})
     
     width, height = image.size
     total_resolution = width * height
