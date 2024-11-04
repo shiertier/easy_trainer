@@ -110,7 +110,7 @@ def resize_image(image,
     try:
         image = load_image(image)
     except OSError as e:
-        logger_i18n("Error processing image $$image_path$$: $$e$$",{"$$image_path$$": image_path, "$$e$$":e})
+        logger_i18n.error("Error processing image $$image_path$$: $$e$$",{"$$image_path$$": image_path, "$$e$$":e})
     
     width, height = image.size
     total_resolution = width * height
@@ -142,9 +142,13 @@ def resize_image(image,
     new_width, new_height, crop_x, crop_y = get_bucket_size()
     new_width = (new_width // 2) * 2  # 避免单数
     new_height = (new_height // 2) * 2  # 避免单数
-    
-    with image.resize((new_width, new_height), resample=Image.BICUBIC) as img_new:
-        cropped_image = img_new.crop((crop_x, crop_y, new_width - crop_x, new_height - crop_y))
+
+    try:
+        with image.resize((new_width, new_height), resample=Image.BICUBIC) as img_new:
+            cropped_image = img_new.crop((crop_x, crop_y, new_width - crop_x, new_height - crop_y))
+    except OSError as e:
+        logger_i18n.error("Error processing image $$image_path$$: $$e$$",{"$$image_path$$": image_path, "$$e$$":e})
+        return None
     
     return cropped_image
 
@@ -172,6 +176,9 @@ def resize_and_save_image(image_path: str,
     makedirs(os.path.dirname(save_path), exist_ok=True)
 
     crop_image = resize_image(image_path, max_size, min_size, buckets)
+
+    if not crop_image:
+        return
 
     if lossless:
         crop_image.save(save_path, format='WEBP', quality=100, lossless=True)
